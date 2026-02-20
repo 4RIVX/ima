@@ -1,38 +1,55 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "./db";
+import { users, analyses, type User, type InsertUser, type Analysis, type InsertAnalysis } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
+  getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserPassword(id: number, passwordHash: string): Promise<void>;
+  
+  createAnalysis(analysis: InsertAnalysis & { userId: number; score: number; classification: string }): Promise<Analysis>;
+  getAnalysesByUserId(userId: number): Promise<Analysis[]>;
+  deleteAnalysis(id: number, userId: number): Promise<void>;
+  clearAnalyses(userId: number): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+export class DatabaseStorage implements IStorage {
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async updateUserPassword(id: number, passwordHash: string): Promise<void> {
+    await db.update(users).set({ password: passwordHash }).where(eq(users.id, id));
+  }
+
+  async createAnalysis(analysis: InsertAnalysis & { userId: number; score: number; classification: string }): Promise<Analysis> {
+    const [created] = await db.insert(analyses).values(analysis).returning();
+    return created;
+  }
+
+  async getAnalysesByUserId(userId: number): Promise<Analysis[]> {
+    return await db.select().from(analyses).where(eq(analyses.userId, userId));
+  }
+
+  async deleteAnalysis(id: number, userId: number): Promise<void> {
+    await db.delete(analyses).where(eq(analyses.id, id));
+  }
+
+  async clearAnalyses(userId: number): Promise<void> {
+    await db.delete(analyses).where(eq(analyses.userId, userId));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
